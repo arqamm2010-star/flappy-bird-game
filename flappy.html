@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Flappy Bird Ultimate Deluxe</title>
+<style>
+  body { margin: 0; overflow: hidden; background: #70c5ce; }
+  canvas { display: block; margin: auto; background: #70c5ce; }
+  #score { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); font-family: Arial; font-size: 22px; color: white; z-index:1; }
+  #level { position: absolute; top: 40px; left: 50%; transform: translateX(-50%); font-family: Arial; font-size: 20px; color: yellow; z-index:1; }
+  #power { position: absolute; top: 70px; left: 50%; transform: translateX(-50%); font-family: Arial; font-size: 20px; color: cyan; z-index:1; }
+</style>
+</head>
+<body>
+<div id="score">Score: 0 | High Score: 0 | Coins: 0</div>
+<div id="level">Level: 1</div>
+<div id="power">Power-Up: None</div>
+<canvas id="gameCanvas"></canvas>
+
+<script>
+// Canvas
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+let width = window.innerWidth;
+let height = window.innerHeight;
+canvas.width = width;
+canvas.height = height;
+
+// Online hosted images
+let birdFrames = [];
+for(let i=0;i<3;i++){
+  let img = new Image();
+  img.src = "https://i.ibb.co/jhJH25B/flappy-bird.png"; // bird image hosted online
+  birdFrames.push(img);
+}
+let pipeTopImg = new Image(); pipeTopImg.src = "https://i.ibb.co/WVdYj1r/pipe-top.png";
+let pipeBottomImg = new Image(); pipeBottomImg.src = "https://i.ibb.co/p1Jq8c1/pipe-bottom.png";
+let bgImg = new Image(); bgImg.src = "https://i.ibb.co/mR7GJdG/bg.png";
+let groundImg = new Image(); groundImg.src = "https://i.ibb.co/BGk6yZ1/ground.png";
+let cloudImg = new Image(); cloudImg.src = "https://i.ibb.co/jR0kZV6/cloud.png";
+let coinImg = new Image(); coinImg.src = "https://i.ibb.co/2W5H8sC/coin.png";
+let shieldImg = new Image(); shieldImg.src = "https://i.ibb.co/4S1Tsc0/shield.png";
+let doubleImg = new Image(); doubleImg.src = "https://i.ibb.co/W6Bz77L/double.png";
+
+// Online hosted sounds
+let flapSound = new Audio("https://freesound.org/data/previews/269/269660_5121236-lq.mp3");
+let scoreSound = new Audio("https://freesound.org/data/previews/171/171671_2437358-lq.mp3");
+let coinSound = new Audio("https://freesound.org/data/previews/331/331912_3248244-lq.mp3");
+let powerSound = new Audio("https://freesound.org/data/previews/174/174027_3248244-lq.mp3");
+let bgMusic = new Audio("https://freesound.org/data/previews/463/463598_8386274-lq.mp3");
+bgMusic.loop = true; bgMusic.volume = 0.3;
+bgMusic.play().catch(()=>{}); // autoplay might require user interaction on mobile
+
+// Bird
+let bird = { x: width/4, y: height/2, width: 40, height: 30, dy:0, rotation:0, frame:0 };
+
+// Pipes & coins
+let pipes = [];
+let coins = [];
+let powerUps = [];
+let pipeWidth = 60;
+let pipeGap = 200;
+let pipeSpeed = 3;
+
+// Ground & clouds
+let groundY = height-100;
+let groundX = 0;
+let clouds = [];
+for(let i=0;i<5;i++){ clouds.push({x: Math.random()*width, y: Math.random()*height/2}); }
+
+// Score & level
+let score = 0;
+let coinsCollected = 0;
+let highScore = localStorage.getItem("highScore") || 0;
+let level = 1;
+
+// Power-ups
+let activePower = { type: "None", timer: 0 };
+
+// Game over
+let gameOver = false;
+
+// Input
+function flap(){ if(!gameOver){ bird.dy=-12; flapSound.play(); } }
+window.addEventListener("keydown", e => { if(e.key===" "||e.key==="ArrowUp") flap(); });
+window.addEventListener("mousedown", flap);
+window.addEventListener("touchstart", flap);
+
+// Spawn pipes and power-ups
+function spawnPipe(){
+    let topHeight = Math.random()*(height-pipeGap-150)+50;
+    pipes.push({ x: width, y:0, width:pipeWidth, height:topHeight, passed:false });
+    pipes.push({ x: width, y:topHeight+pipeGap, width:pipeWidth, height:height-(topHeight+pipeGap), passed:false });
+    coins.push({ x: width+pipeWidth/2-10, y: topHeight+pipeGap/2-10, width:20, height:20, collected:false });
+    if(Math.random()<0.1){
+        let type = Math.random()<0.5?"Shield":"Double";
+        powerUps.push({ x: width+pipeWidth/2-15, y: topHeight+pipeGap/2-15, width:30, height:30, type:type, collected:false });
+    }
+}
+
+// Game loop
+function loop(){
+    ctx.clearRect(0,0,width,height);
+
+    if(bgImg.complete) ctx.drawImage(bgImg,0,0,width,height);
+
+    clouds.forEach(c=>{
+        ctx.drawImage(cloudImg, c.x, c.y, 100,60);
+        c.x -= 0.5; if(c.x<-100) c.x=width;
+    });
+
+    if(!gameOver){
+        bird.dy += 0.6; bird.y += bird.dy;
+        bird.rotation = Math.min(Math.max(bird.dy*2, -25), 90) * Math.PI/180;
+        bird.frame += 0.2; let frameIdx = Math.floor(bird.frame) % birdFrames.length;
+
+        ctx.save();
+        ctx.translate(bird.x+bird.width/2, bird.y+bird.height/2);
+        ctx.rotate(bird.rotation);
+        ctx.drawImage(birdFrames[frameIdx], -bird.width/2, -bird.height/2, bird.width, bird.height);
+        ctx.restore();
+
+        if(pipes.length===0 || pipes[pipes.length-1].x < width-300) spawnPipe();
+        pipes.forEach((p,i)=>{
+            p.x -= pipeSpeed;
+            if(p.y===0) ctx.drawImage(pipeTopImg,p.x,p.y,p.width,p.height);
+            else ctx.drawImage(pipeBottomImg,p.x,p.y,p.width,p.height);
+
+            if(activePower.type!=="Shield" && bird.x < p.x+p.width && bird.x+bird.width>p.x && bird.y < p.y+p.height && bird.y+bird.height > p.y){
+                gameOver=true;
+            }
+
+            if(!p.passed && p.y===0 && bird.x > p.x+p.width){
+                score++; if(activePower.type==="Double") score++;
+                scoreSound.play(); p.passed=true;
+                if(score>highScore){ highScore=score; localStorage.setItem("highScore",highScore); }
+            }
+        });
+
+        coins.forEach((c,i)=>{
+            if(!c.collected && bird.x+bird.width>c.x && bird.x<c.x+c.width && bird.y+bird.height>c.y && bird.y<c.y+c.height){
+                c.collected=true; coinsCollected += activePower.type==="Double"?2:1; coinSound.play();
+            }
+            if(!c.collected) ctx.drawImage(coinImg,c.x,c.y,c.width,c.height);
+            c.x -= pipeSpeed;
+        });
+        coins = coins.filter(c=>c.x+c.width>0 && !c.collected);
+
+        powerUps.forEach((p,i)=>{
+            if(!p.collected && bird.x+bird.width>p.x && bird.x<p.x+p.width && bird.y+bird.height>p.y && bird.y<p.y+p.height){
+                p.collected=true; activePower.type=p.type; activePower.timer=300; powerSound.play();
+            }
+            if(!p.collected){ if(p.type==="Shield") ctx.drawImage(shieldImg,p.x,p.y,p.width,p.height);
+                               else ctx.drawImage(doubleImg,p.x,p.y,p.width,p.height); }
+            p.x -= pipeSpeed;
+        });
+        powerUps = powerUps.filter(p=>p.x+p.width>0 && !p.collected);
+
+        if(activePower.timer>0) activePower.timer--; else activePower.type="None";
+
+        groundX -= pipeSpeed; if(groundX<-width) groundX=0;
+        if(groundImg.complete){ ctx.drawImage(groundImg,groundX,groundY,width,100); ctx.drawImage(groundImg,groundX+width,groundY,width,100); }
+
+        level = Math.floor(score/10)+1;
+        pipeSpeed = 3 + level*0.5; pipeGap = Math.max(120,200 - level*5);
+
+        document.getElementById("score").innerText = "Score: "+score+" | High Score: "+highScore+" | Coins: "+coinsCollected;
+        document.getElementById("level").innerText = "Level: "+level;
+        document.getElementById("power").innerText = "Power-Up: "+activePower.type;
+
+        requestAnimationFrame(loop);
+    } else {
+        ctx.fillStyle="red"; ctx.font="48px Arial"; ctx.fillText("Game Over!", width/2-130, height/2);
+        ctx.font="32px Arial"; ctx.fillText("Score: "+score+" | Coins: "+coinsCollected, width/2-130, height/2+50);
+        ctx.fillText("High Score: "+highScore, width/2-90, height/2+90);
+    }
+}
+
+loop();
+window.addEventListener("resize", ()=>{ width=window.innerWidth; height=window.innerHeight; canvas.width=width; canvas.height=height; });
+</script>
+</body>
+</html>
